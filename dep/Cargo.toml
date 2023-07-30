@@ -1,0 +1,11 @@
+[package]
+name = "lsm_extension"
+version = "3.42.0"
+build = "build.rs"
+edition = "2021"
+
+[build-dependencies]
+cc = { version = "^1.0", features = ["parallel"] }
+
+[dependencies]
+libc = "0.2.147"
