@@ -1,0 +1,4 @@
+[submodule "dep/sqlite"]
+	path = dep/sqlite
+	url = https://github.com/sqlite/sqlite
+	shallow = true
