@@ -7,6 +7,7 @@ use lsm_ext::*;
 extern crate scopeguard;
 use scopeguard::defer;
 
+mod entry;
 mod iter;
 mod range;
 
