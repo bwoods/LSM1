@@ -56,8 +56,6 @@ impl<'e> Entry<'e> {
 
     #[inline]
     /// Ensures a value is in the entry by inserting, if empty, the result of the default function. This method allows for generating key-derived values for insertion by providing the default function a reference to the key that was moved during the `.entry(key)` method call.
-    ///
-    /// The reference to the moved key is provided so that cloning or copying the key is unnecessary, unlike with `.or_insert_with(|| ... )`.
     pub fn or_insert_with_key<F>(self, default: F) -> &'e [u8]
     where
         F: FnOnce(&[u8]) -> &'e [u8],
@@ -84,7 +82,7 @@ impl<'e> Entry<'e> {
     /// Provides in-place mutable access to an occupied entry before any potential inserts into the map.
     pub fn and_modify<F>(self, f: F) -> Entry<'e>
     where
-        F: FnOnce(&mut [u8]),
+        F: FnOnce(&mut std::borrow::Cow<'e, [u8]>),
     {
         unsafe {
             match &self {
@@ -94,7 +92,7 @@ impl<'e> Entry<'e> {
                     let mut len: u32 = 0;
 
                     lsm_csr_value(entry.0, &mut ptr, &mut len).ok().unwrap();
-                    let mut value = from_raw_parts(ptr, len as usize).to_vec();
+                    let mut value = std::borrow::Cow::Borrowed(from_raw_parts(ptr, len as usize));
                     f(&mut value);
 
                     lsm_csr_key(entry.0, &mut ptr, &mut len).ok().unwrap();
@@ -153,6 +151,7 @@ pub struct OccupiedEntry<'e>(*mut lsm_cursor, *mut lsm_db, PhantomData<&'e u8>);
 
 impl<'e> OccupiedEntry<'e> {
     #[inline]
+    /// Gets a reference to the key in the entry.
     pub fn key(&self) -> &'e [u8] {
         unsafe {
             let mut ptr: *const u8 = null_mut();
@@ -163,6 +162,8 @@ impl<'e> OccupiedEntry<'e> {
         }
     }
 
+    #[inline]
+    /// Take ownership of the key and value from the map.
     pub fn remove_entry(self) -> (Vec<u8>, Vec<u8>) {
         let mut ptr: *const u8 = null_mut();
         let mut len: u32 = 0;
@@ -214,7 +215,7 @@ impl<'e> OccupiedEntry<'e> {
         }
     }
 
-    #[inline(always)]
+    #[inline]
     /// Takes the value of the entry out of the map, and returns it.
     pub fn remove(self) -> Vec<u8> {
         unsafe {
