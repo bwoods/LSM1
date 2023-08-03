@@ -8,7 +8,6 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 lsm_ext = { package = "lsm_extension", path = "dep" }
-scopeguard = "1.2.0"
 
 [profile.dev]
 opt-level = 0
@@ -24,5 +23,5 @@ lto = "thin"
 inherits = "release"
 codegen-units = 1
 incremental = false
-lto = "fat"
 strip = true
+lto = "fat"

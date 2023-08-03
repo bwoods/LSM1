@@ -1,32 +1,3 @@
-extern crate lsm_ext;
-use lsm_ext::*;
-
-use super::Map;
-
-use std::marker::PhantomData;
-use std::ptr::null_mut;
-use std::slice::from_raw_parts;
-
-impl<'e, 'm: 'e> Map<'m> {
-    /// Gets the given key’s corresponding entry in the map for in-place manipulation.
-    pub fn entry(&mut self, key: &'e [u8]) -> Entry<'e> {
-        let mut cursor: *mut lsm_cursor = null_mut();
-        let marker = Default::default();
-
-        unsafe {
-            lsm_csr_open(self.db, &mut cursor).ok().unwrap();
-
-            match lsm_csr_valid(cursor) {
-                true => Entry::Occupied(OccupiedEntry(cursor, self.db, marker)),
-                false => {
-                    let _ = lsm_csr_close(cursor);
-                    Entry::Vacant(VacantEntry(key, self.db))
-                }
-            }
-        }
-    }
-}
-
 /// A view into a single entry in a map, which may either be vacant or occupied.
 ///
 /// This enum is constructed from the [entry] method.
@@ -61,47 +32,10 @@ impl<'e> Entry<'e> {
         F: FnOnce(&[u8]) -> &'e [u8],
     {
         match self {
-            Entry::Vacant(entry) => {
-                let value = default(entry.0);
-                entry.insert(value)
-            }
             Entry::Occupied(entry) => entry.get(),
-        }
-    }
-
-    #[inline(always)]
-    /// Returns a reference to this entry’s key.
-    pub fn key(&self) -> &'e [u8] {
-        match self {
-            Entry::Vacant(entry) => entry.key(),
-            Entry::Occupied(entry) => entry.key(),
-        }
-    }
-
-    #[inline]
-    /// Provides in-place mutable access to an occupied entry before any potential inserts into the map.
-    pub fn and_modify<F>(self, f: F) -> Entry<'e>
-    where
-        F: FnOnce(&mut std::borrow::Cow<'e, [u8]>),
-    {
-        unsafe {
-            match &self {
-                Entry::Vacant(_) => self,
-                Entry::Occupied(entry) => {
-                    let mut ptr: *const u8 = null_mut();
-                    let mut len: u32 = 0;
-
-                    lsm_csr_value(entry.0, &mut ptr, &mut len).ok().unwrap();
-                    let mut value = std::borrow::Cow::Borrowed(from_raw_parts(ptr, len as usize));
-                    f(&mut value);
-
-                    lsm_csr_key(entry.0, &mut ptr, &mut len).ok().unwrap();
-                    lsm_insert(entry.1, ptr, len, value.as_ptr(), value.len() as u32)
-                        .ok()
-                        .unwrap();
-
-                    self
-                }
+            Entry::Vacant(entry) => {
+                let value = default(entry.1);
+                entry.insert(value)
             }
         }
     }
@@ -111,15 +45,55 @@ impl<'e> Entry<'e> {
     pub fn or_default(self) -> &'e [u8] {
         self.or_insert(Default::default())
     }
+
+    #[inline(always)]
+    /// Returns a reference to this entry’s key.
+    pub fn key(&self) -> &'e [u8] {
+        match self {
+            Entry::Occupied(entry) => entry.key(),
+            Entry::Vacant(entry) => entry.key(),
+        }
+    }
+
+    #[inline]
+    /// Provides in-place mutable access to an occupied entry before any potential inserts into the map.
+    pub fn and_modify<F>(self, modify: F) -> Entry<'e>
+    where
+        F: FnOnce(&mut std::borrow::Cow<'e, [u8]>),
+    {
+        match &self {
+            Entry::Vacant(_) => self,
+            Entry::Occupied(occupied) => {
+                let mut entry = occupied.0.borrow_mut();
+                let val = entry.val().unwrap();
+
+                let mut value = std::borrow::Cow::Borrowed(val);
+                modify(&mut value);
+
+                match value {
+                    std::borrow::Cow::Borrowed(_) => {} // no changes were made
+                    std::borrow::Cow::Owned(value) => {
+                        entry.replace(&value).unwrap();
+                    }
+                }
+
+                drop(entry);
+                self
+            }
+        }
+    }
 }
 
-pub struct VacantEntry<'e>(&'e [u8], *mut lsm_db);
+use crate::range::Bound;
+use std::cell::RefCell;
+
+pub struct VacantEntry<'e>(Bound<'e>, &'e [u8]);
 
 impl<'e> VacantEntry<'e> {
     #[inline(always)]
     /// Gets a reference to the key that would be used when inserting a value through the VacantEntry.
     pub fn key(&self) -> &'e [u8] {
-        self.0
+        self.1
     }
 
     #[inline(always)]
@@ -131,113 +105,55 @@ impl<'e> VacantEntry<'e> {
     #[inline(always)]
     /// Sets the value of the entry with the VacantEntry’s key, and returns a reference to it.
     pub fn insert(self, value: &'e [u8]) -> &'e [u8] {
-        unsafe {
-            lsm_insert(
-                self.1,
-                self.0.as_ptr(),
-                self.0.len() as u32,
-                value.as_ptr(),
-                value.len() as u32,
-            )
-            .ok()
-            .unwrap();
-        }
-
+        let mut entry = self.0;
+        entry.insert(self.1, value).unwrap();
         value
     }
 }
 
-pub struct OccupiedEntry<'e>(*mut lsm_cursor, *mut lsm_db, PhantomData<&'e u8>);
+pub struct OccupiedEntry<'e>(RefCell<Bound<'e>>);
 
 impl<'e> OccupiedEntry<'e> {
     #[inline]
     /// Gets a reference to the key in the entry.
     pub fn key(&self) -> &'e [u8] {
-        unsafe {
-            let mut ptr: *const u8 = null_mut();
-            let mut len: u32 = 0;
-
-            lsm_csr_key(self.0, &mut ptr, &mut len).ok().unwrap();
-            from_raw_parts(ptr, len as usize)
-        }
-    }
-
-    #[inline]
-    /// Take ownership of the key and value from the map.
-    pub fn remove_entry(self) -> (Vec<u8>, Vec<u8>) {
-        let mut ptr: *const u8 = null_mut();
-        let mut len: u32 = 0;
-
-        unsafe {
-            lsm_csr_key(self.0, &mut ptr, &mut len).ok().unwrap();
-            let key = from_raw_parts(ptr, len as usize).to_vec();
-
-            lsm_csr_value(self.0, &mut ptr, &mut len).ok().unwrap();
-            let value = from_raw_parts(ptr, len as usize).to_vec();
-
-            lsm_delete(self.1, key.as_ptr(), key.len() as u32)
-                .ok()
-                .unwrap();
-
-            (key, value)
-        }
+        self.0.borrow_mut().key().unwrap()
     }
 
     #[inline]
     /// Gets a reference to the value in the entry.
     pub fn get(&self) -> &'e [u8] {
-        unsafe {
-            let mut ptr: *const u8 = null_mut();
-            let mut len: u32 = 0;
-
-            lsm_csr_value(self.0, &mut ptr, &mut len).ok().unwrap();
-            from_raw_parts(ptr, len as usize)
-        }
+        self.0.borrow_mut().val().unwrap()
     }
 
     #[inline]
     /// Sets the value of the entry with the OccupiedEntry’s key, and returns the entry’s old value.
-    pub fn insert(&mut self, value: &'e [u8]) -> Vec<u8> {
-        unsafe {
-            let mut ptr: *const u8 = null_mut();
-            let mut len: u32 = 0;
+    pub fn insert(&self, value: &'e [u8]) -> Vec<u8> {
+        let mut entry = self.0.borrow_mut();
+        let old = entry.val().unwrap().to_vec();
+        entry.replace(value).unwrap();
 
-            lsm_csr_value(self.0, &mut ptr, &mut len).ok().unwrap();
-            let old = from_raw_parts(ptr, len as usize).to_vec();
-
-            lsm_csr_key(self.0, &mut ptr, &mut len).ok().unwrap();
-
-            lsm_insert(self.1, ptr, len, value.as_ptr(), value.len() as u32)
-                .ok()
-                .unwrap();
-
-            old
-        }
+        old
     }
 
     #[inline]
     /// Takes the value of the entry out of the map, and returns it.
     pub fn remove(self) -> Vec<u8> {
-        unsafe {
-            let mut ptr: *const u8 = null_mut();
-            let mut len: u32 = 0;
+        let mut entry = self.0.borrow_mut();
+        let old = entry.val().unwrap().to_vec();
+        entry.remove().unwrap();
 
-            lsm_csr_value(self.0, &mut ptr, &mut len).ok().unwrap();
-            let value = from_raw_parts(ptr, len as usize).to_vec();
-
-            lsm_csr_key(self.0, &mut ptr, &mut len).ok().unwrap();
-            lsm_delete(self.1, ptr, len as u32).ok().unwrap();
-
-            value
-        }
+        old
     }
-}
 
-impl Drop for OccupiedEntry<'_> {
-    #[inline(always)]
-    fn drop(&mut self) {
-        unsafe {
-            let _ = lsm_csr_close(self.0);
-        }
+    #[inline]
+    /// Take ownership of the key and value from the map.
+    pub fn remove_entry(self) -> (Vec<u8>, Vec<u8>) {
+        let mut entry = self.0.borrow_mut();
+        let key = entry.key().unwrap().to_vec();
+        let val = entry.val().unwrap().to_vec();
+        entry.remove().unwrap();
+
+        (key, val)
     }
 }
