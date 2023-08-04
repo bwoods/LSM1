@@ -2,17 +2,20 @@ extern crate lsm_ext;
 use lsm_ext::*;
 
 pub(crate) struct RangeBounds<'a> {
-    start_bound: Bound<'a>,
-    end_bound: Bound<'a>,
+    pub(crate) start_bound: Bound<'a>,
+    pub(crate) end_bound: Bound<'a>,
 }
 
 impl<'a> RangeBounds<'a> {
-    pub(crate) fn new_in(
+    pub(crate) fn new_in<'b>(
         db: *mut lsm_db,
-        range: impl std::ops::RangeBounds<[u8]>,
+        range: impl std::ops::RangeBounds<&'b [u8]>,
     ) -> Result<Self, Error> {
-        let start_bound = Bound::new_in(db, range.start_bound(), Seek::GE, lsm_csr_next)?;
-        let end_bound = Bound::new_in(db, range.end_bound(), Seek::LE, lsm_csr_prev)?;
+        let lhs: std::ops::Bound<&'b [u8]> = range.start_bound().cloned();
+        let rhs: std::ops::Bound<&'b [u8]> = range.end_bound().cloned();
+
+        let start_bound = Bound::new_in(db, lhs, Seek::GE, lsm_csr_next)?;
+        let end_bound = Bound::new_in(db, rhs, Seek::LE, lsm_csr_prev)?;
 
         Ok(RangeBounds {
             start_bound,

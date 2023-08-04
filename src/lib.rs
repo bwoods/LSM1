@@ -5,6 +5,7 @@ extern crate lsm_ext;
 use lsm_ext::*;
 
 mod entry;
+mod map;
 mod range;
 
 use std::ffi::CString;
@@ -27,15 +28,19 @@ impl Tree {
         Ok(Tree { db })
     }
 
-    pub fn iter(&self) -> impl Iterator {
-        self.range(..)
+    pub fn entry<'e>(&self, key: &'e [u8]) -> entry::Entry<'e> {
+        entry::Entry::new_in(self.db, key.as_ref())
     }
 
-    pub fn range<R>(&self, range: R) -> impl Iterator
+    pub fn range<'a, R>(&self, range: R) -> impl Iterator + 'a
     where
-        R: std::ops::RangeBounds<[u8]>,
+        R: std::ops::RangeBounds<&'a [u8]>,
     {
         range::RangeBounds::new_in(self.db, range).unwrap()
+    }
+
+    pub fn iter(&self) -> impl Iterator {
+        self.range(..)
     }
 }
 

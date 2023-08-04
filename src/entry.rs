@@ -1,3 +1,6 @@
+extern crate lsm_ext;
+use lsm_ext::*;
+
 /// A view into a single entry in a map, which may either be vacant or occupied.
 ///
 /// This enum is constructed from the [entry] method.
@@ -10,6 +13,17 @@ pub enum Entry<'e> {
 }
 
 impl<'e> Entry<'e> {
+    pub(crate) fn new_in<'b>(db: *mut lsm_db, key: &'e [u8]) -> Self {
+        let mut range = range::RangeBounds::new_in(db, key..).unwrap();
+
+        match range.start_bound.key() {
+            Ok(found) if found == key => {
+                Entry::Occupied(OccupiedEntry(RefCell::new(range.start_bound)))
+            }
+            _ => Entry::Vacant(VacantEntry(range.start_bound, key)),
+        }
+    }
+
     #[inline(always)]
     /// Ensures a value is in the entry by inserting the default if empty, and returns a reference to the value in the entry.
     pub fn or_insert(self, default: &'e [u8]) -> &'e [u8] {
@@ -84,6 +98,7 @@ impl<'e> Entry<'e> {
     }
 }
 
+use crate::range;
 use crate::range::Bound;
 use std::cell::RefCell;
 
@@ -105,8 +120,8 @@ impl<'e> VacantEntry<'e> {
     #[inline(always)]
     /// Sets the value of the entry with the VacantEntry’s key, and returns a reference to it.
     pub fn insert(self, value: &'e [u8]) -> &'e [u8] {
-        let mut entry = self.0;
-        entry.insert(self.1, value).unwrap();
+        let mut bound = self.0;
+        bound.insert(self.1, value).unwrap();
         value
     }
 }
@@ -128,7 +143,7 @@ impl<'e> OccupiedEntry<'e> {
 
     #[inline]
     /// Sets the value of the entry with the OccupiedEntry’s key, and returns the entry’s old value.
-    pub fn insert(&self, value: &'e [u8]) -> Vec<u8> {
+    pub fn insert(&self, value: &'e [u8]) -> impl AsRef<[u8]> {
         let mut entry = self.0.borrow_mut();
         let old = entry.val().unwrap().to_vec();
         entry.replace(value).unwrap();
