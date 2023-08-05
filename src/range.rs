@@ -1,4 +1,3 @@
-extern crate lsm_ext;
 use lsm_ext::*;
 
 pub(crate) struct RangeBounds<'a> {
@@ -11,21 +10,26 @@ impl<'a> RangeBounds<'a> {
         db: *mut lsm_db,
         range: impl std::ops::RangeBounds<&'b [u8]>,
     ) -> Result<Self, Error> {
-        let lhs: std::ops::Bound<&'b [u8]> = range.start_bound().cloned();
-        let rhs: std::ops::Bound<&'b [u8]> = range.end_bound().cloned();
+        let lhs = range.start_bound().cloned();
+        let rhs = range.end_bound().cloned();
 
-        let start_bound = Bound::new_in(db, lhs, Seek::GE, lsm_csr_next)?;
-        let end_bound = Bound::new_in(db, rhs, Seek::LE, lsm_csr_prev)?;
+        let start_bound = Bound::new_in(db, lhs, Direction::Next)?;
+        let end_bound = Bound::new_in(db, rhs, Direction::Prev)?;
 
         Ok(RangeBounds {
             start_bound,
             end_bound,
         })
     }
+
+    // noinspection RsSelfConvention
+    pub fn is_empty(&mut self) -> bool {
+        self.start_bound.cursor().ok().is_none()
+    }
 }
 
 impl<'a> Iterator for RangeBounds<'a> {
-    type Item = &'a [u8];
+    type Item = (&'a [u8], &'a [u8]);
 
     fn next(&mut self) -> Option<Self::Item> {
         let cursor = self.start_bound.cursor().ok()?;
@@ -48,6 +52,8 @@ impl<'a> Iterator for RangeBounds<'a> {
                 }
             }
 
+            let key = self.start_bound.key().ok()?;
+
             let value = self
                 .start_bound
                 .val()
@@ -57,7 +63,7 @@ impl<'a> Iterator for RangeBounds<'a> {
                 })
                 .ok()?;
 
-            Some(value)
+            Some((key, value))
         }
     }
 }
@@ -84,6 +90,8 @@ impl<'a> DoubleEndedIterator for RangeBounds<'a> {
                 }
             }
 
+            let key = self.start_bound.key().ok()?;
+
             let value = self
                 .end_bound
                 .val()
@@ -93,7 +101,7 @@ impl<'a> DoubleEndedIterator for RangeBounds<'a> {
                 })
                 .ok()?;
 
-            Some(value)
+            Some((key, value))
         }
     }
 }
@@ -114,37 +122,44 @@ pub(crate) enum Bound<'a> {
 impl<'a> Bound<'a> {
     #[inline(never)]
     /// Unbounded bounds refrain from allocating a cursor until it is needed.
-    fn new_in(
+    pub(crate) fn new_in(
         db: *mut lsm_db,
-        key: std::ops::Bound<&[u8]>,
-        seek: Seek,
-        next: unsafe extern "C" fn(cursor: *mut lsm_cursor) -> Error,
+        bound: std::ops::Bound<&[u8]>,
+        direction: Direction,
     ) -> Result<Self, Error> {
         unsafe {
             let mut cursor = null_mut();
 
+            let seek = || match direction {
+                Direction::Next => Seek::GE,
+                Direction::Prev => Seek::LE,
+            };
+
             // using an inner closure to allow ?-syntax to be used
-            let bound = (|| -> Result<Self, Error> {
-                match key {
-                    std::ops::Bound::Unbounded => {
-                        Ok(Bound::Unbounded(db, next, Default::default()))
-                    }
+            let result = (|| -> Result<Self, Error> {
+                match bound {
+                    std::ops::Bound::Unbounded => Ok(match direction {
+                        Direction::Next => Bound::Unbounded(db, lsm_csr_first, Default::default()),
+                        Direction::Prev => Bound::Unbounded(db, lsm_csr_last, Default::default()),
+                    }),
                     std::ops::Bound::Included(key) => {
                         lsm_csr_open(db, &mut cursor).ok()?;
-                        lsm_csr_seek(cursor, key.as_ptr(), key.len() as u32, seek).ok()?;
+                        lsm_csr_seek(cursor, key.as_ptr(), key.len() as u32, seek()).ok()?;
 
                         Ok(Bound::Included(db, cursor))
                     }
                     std::ops::Bound::Excluded(key) => {
                         lsm_csr_open(db, &mut cursor).ok()?;
-                        lsm_csr_seek(cursor, key.as_ptr(), key.len() as u32, seek).ok()?;
+                        lsm_csr_seek(cursor, key.as_ptr(), key.len() as u32, seek()).ok()?;
 
                         let mut cmp = 0;
                         lsm_csr_cmp(cursor, key.as_ptr(), key.len() as u32, &mut cmp).ok()?;
 
-                        if cmp == 0 {
-                            next(cursor).ok()?;
-                        }
+                        match (cmp, direction) {
+                            (0, Direction::Next) => lsm_csr_next(cursor).ok()?,
+                            (0, Direction::Prev) => lsm_csr_prev(cursor).ok()?,
+                            _ => {}
+                        };
 
                         Ok(Bound::Included(db, cursor))
                     }
@@ -152,7 +167,7 @@ impl<'a> Bound<'a> {
             })();
 
             // close cursor on errors
-            bound.map_err(|error| {
+            result.map_err(|error| {
                 let _ = lsm_csr_close(cursor); // ignores null ptrs properly
                 error
             })
@@ -166,7 +181,7 @@ impl<'a> Bound<'a> {
         }
     }
 
-    fn cursor(&mut self) -> Result<*mut lsm_cursor, Error> {
+    pub(crate) fn cursor(&mut self) -> Result<*mut lsm_cursor, Error> {
         match self {
             Bound::Included(_, cursor) => Ok(*cursor),
             Bound::Unbounded(db, position, ..) => {
@@ -240,4 +255,10 @@ impl<'a> Bound<'a> {
         let key = self.key()?;
         self.insert(key, value)
     }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) enum Direction {
+    Next,
+    Prev,
 }

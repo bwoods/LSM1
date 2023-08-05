@@ -1,4 +1,3 @@
-extern crate lsm_ext;
 use lsm_ext::*;
 
 /// A view into a single entry in a map, which may either be vacant or occupied.
@@ -13,7 +12,7 @@ pub enum Entry<'e> {
 }
 
 impl<'e> Entry<'e> {
-    pub(crate) fn new_in<'b>(db: *mut lsm_db, key: &'e [u8]) -> Self {
+    pub(crate) fn new_in(db: *mut lsm_db, key: &'e [u8]) -> Self {
         let mut range = range::RangeBounds::new_in(db, key..).unwrap();
 
         match range.start_bound.key() {
@@ -126,7 +125,7 @@ impl<'e> VacantEntry<'e> {
     }
 }
 
-pub struct OccupiedEntry<'e>(RefCell<Bound<'e>>);
+pub struct OccupiedEntry<'e>(pub(crate) RefCell<Bound<'e>>);
 
 impl<'e> OccupiedEntry<'e> {
     #[inline]

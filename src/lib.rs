@@ -1,4 +1,4 @@
-#![allow(non_camel_case_types, dead_code)]
+#![allow(non_camel_case_types, dead_code, clippy::bool_comparison)]
 #![doc = include_str!("../README.md")]
 
 extern crate lsm_ext;
@@ -11,7 +11,7 @@ mod range;
 use std::ffi::CString;
 use std::ptr::null_mut;
 
-pub struct Tree {
+pub(crate) struct Tree {
     db: *mut lsm_db,
 }
 
@@ -29,18 +29,14 @@ impl Tree {
     }
 
     pub fn entry<'e>(&self, key: &'e [u8]) -> entry::Entry<'e> {
-        entry::Entry::new_in(self.db, key.as_ref())
+        entry::Entry::new_in(self.db, key)
     }
 
-    pub fn range<'a, R>(&self, range: R) -> impl Iterator + 'a
+    pub fn range<'r, R>(&self, range: R) -> range::RangeBounds<'r>
     where
-        R: std::ops::RangeBounds<&'a [u8]>,
+        R: std::ops::RangeBounds<&'r [u8]>,
     {
         range::RangeBounds::new_in(self.db, range).unwrap()
-    }
-
-    pub fn iter(&self) -> impl Iterator {
-        self.range(..)
     }
 }
 

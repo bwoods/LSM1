@@ -11,7 +11,7 @@ pub enum lsm_file {}
 pub enum lsm_mutex {}
 
 #[repr(i32)]
-#[derive(Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Lock {
     Unlock = 0,
     Shared = 1,
@@ -19,14 +19,14 @@ pub enum Lock {
 }
 
 #[repr(i32)]
-#[derive(Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Open {
     ReadWrite = 0x0000,
     ReadOnly = 0x0001,
 }
 
 #[repr(i32)]
-#[derive(Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Mutex {
     Global = 1,
     Heap = 2,
@@ -34,7 +34,7 @@ pub enum Mutex {
 
 #[must_use]
 #[repr(i32)]
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Error {
     Ok = 0,
     Error = 1,
@@ -59,7 +59,7 @@ impl Error {
 }
 
 #[repr(i32)]
-#[derive(Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Config {
     AutoFlush = 1,
     PageSize = 2,
@@ -79,7 +79,7 @@ pub enum Config {
 }
 
 #[repr(i32)]
-#[derive(Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Safety {
     Off = 0,
     Normal = 1,
@@ -87,7 +87,7 @@ pub enum Safety {
 }
 
 #[repr(i32)]
-#[derive(Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Compression {
     Empty = 0,
     None = 1,
@@ -96,7 +96,7 @@ pub enum Compression {
 }
 
 #[repr(i32)]
-#[derive(Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Info {
     NumWrite = 1,
     NumRead = 2,
@@ -114,7 +114,7 @@ pub enum Info {
 }
 
 #[repr(i32)]
-#[derive(Eq, PartialEq)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 pub enum Seek {
     LEFast = -2,
     LE = -1,
