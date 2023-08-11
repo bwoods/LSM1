@@ -5,29 +5,18 @@ extern crate lsm_ext;
 use lsm_ext::*;
 
 mod entry;
+mod file;
 mod map;
 mod range;
 
-use std::ffi::CString;
-use std::ptr::null_mut;
+#[cfg(test)]
+mod test;
 
 pub(crate) struct Tree {
     db: *mut lsm_db,
 }
 
 impl Tree {
-    pub fn new(path: &str) -> Result<Self, Error> {
-        let mut db: *mut lsm_db = null_mut();
-        let path = CString::new(path).unwrap();
-
-        unsafe {
-            lsm_new(null_mut(), &mut db).ok()?;
-            lsm_open(db, path.as_ptr() as *const u8).ok()?;
-        }
-
-        Ok(Tree { db })
-    }
-
     pub fn entry<'e>(&self, key: &'e [u8]) -> entry::Entry<'e> {
         entry::Entry::new_in(self.db, key)
     }

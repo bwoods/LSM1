@@ -1,6 +1,6 @@
 use lsm_ext::*;
 
-pub(crate) struct RangeBounds<'a> {
+pub struct RangeBounds<'a> {
     pub(crate) start_bound: Bound<'a>,
     pub(crate) end_bound: Bound<'a>,
 }
@@ -58,10 +58,10 @@ impl<'a> Iterator for RangeBounds<'a> {
                 .start_bound
                 .val()
                 .and_then(|val| {
-                    lsm_csr_next(cursor).ok()?;
+                    lsm_csr_next(cursor).ok().expect("next");
                     Ok(val)
                 })
-                .ok()?;
+                .expect("val");
 
             Some((key, value))
         }
@@ -96,10 +96,10 @@ impl<'a> DoubleEndedIterator for RangeBounds<'a> {
                 .end_bound
                 .val()
                 .and_then(|val| {
-                    lsm_csr_next(cursor).ok()?;
+                    lsm_csr_next(cursor).ok().expect("next");
                     Ok(val)
                 })
-                .ok()?;
+                .expect("val");
 
             Some((key, value))
         }
@@ -182,10 +182,10 @@ impl<'a> Bound<'a> {
     }
 
     pub(crate) fn cursor(&mut self) -> Result<*mut lsm_cursor, Error> {
-        match self {
-            Bound::Included(_, cursor) => Ok(*cursor),
-            Bound::Unbounded(db, position, ..) => {
-                unsafe {
+        unsafe {
+            let cursor = match self {
+                Bound::Included(_, cursor) => *cursor,
+                Bound::Unbounded(db, position, ..) => {
                     let mut cursor = null_mut();
                     lsm_csr_open(*db, &mut cursor).ok()?;
                     position(cursor).ok().map_err(|error| {
@@ -195,8 +195,13 @@ impl<'a> Bound<'a> {
 
                     // Unbounded bounds are lazily loaded; right here
                     *self = Bound::Included(*db, cursor);
-                    Ok(cursor)
+                    cursor
                 }
+            };
+
+            match lsm_csr_valid(cursor) {
+                true => Ok(cursor),
+                false => Err(Error::NoEnt),
             }
         }
     }
@@ -214,7 +219,11 @@ impl<'a> Bound<'a> {
 
         unsafe {
             lsm_csr_key(self.cursor()?, &mut ptr, &mut len).ok()?;
-            Ok(from_raw_parts(ptr, len as usize))
+            if ptr == null_mut() {
+                Err(Error::NoEnt)
+            } else {
+                Ok(from_raw_parts(ptr, len as usize))
+            }
         }
     }
 
@@ -224,7 +233,11 @@ impl<'a> Bound<'a> {
 
         unsafe {
             lsm_csr_value(self.cursor()?, &mut ptr, &mut len).ok()?;
-            Ok(from_raw_parts(ptr, len as usize))
+            if ptr == null_mut() {
+                Err(Error::NoEnt)
+            } else {
+                Ok(from_raw_parts(ptr, len as usize))
+            }
         }
     }
 

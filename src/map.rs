@@ -1,15 +1,22 @@
-use crate::{entry::*, range::*, Tree};
+use crate::{entry::*, range::*, Error, Tree};
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 
-struct Map<'a> {
+pub struct Map<'a> {
     tree: Tree,
     marker: PhantomData<&'a [u8]>,
 }
 
 impl<'a> Map<'a> {
+    pub fn new(path: &str) -> Result<Self, Error> {
+        Ok(Map {
+            tree: Tree::new(path)?,
+            marker: Default::default(),
+        })
+    }
+
     #[inline]
     /// Returns a reference to the value corresponding to the key.
     pub fn get(&self, key: &'a [u8]) -> Option<&'a [u8]> {
@@ -216,19 +223,21 @@ impl<'a> Map<'a> {
 }
 
 /// An iterator over the entries of a `Map`.
-struct Iter<'e> {
+pub struct Iter<'e> {
     range: RangeBounds<'e>,
 }
 
 impl<'e> Iterator for Iter<'e> {
     type Item = (&'e [u8], &'e [u8]);
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.range.next()
     }
 }
 
 impl<'e> DoubleEndedIterator for Iter<'e> {
+    #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         self.range.next_back()
     }

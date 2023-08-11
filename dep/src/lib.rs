@@ -50,6 +50,7 @@ pub enum Error {
 }
 
 impl Error {
+    #[inline(always)]
     pub fn ok(self) -> Result<(), Self> {
         match self {
             Error::Ok => Ok(()),

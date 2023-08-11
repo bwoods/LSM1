@@ -154,10 +154,10 @@ impl<'e> OccupiedEntry<'e> {
     /// Takes the value of the entry out of the map, and returns it.
     pub fn remove(self) -> Vec<u8> {
         let mut entry = self.0.borrow_mut();
-        let old = entry.val().unwrap().to_vec();
+        let val = entry.val().unwrap().to_vec();
         entry.remove().unwrap();
 
-        old
+        val
     }
 
     #[inline]
